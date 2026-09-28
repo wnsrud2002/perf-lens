@@ -1,9 +1,10 @@
 import type { FlameNode, FnStat } from './analyze.ts';
 import { drawFlame, setFlame } from './flame.ts';
 import type { Heap } from './heap.ts';
-import { hv, setHeap } from './heapview.ts';
+import { draw as drawHeap, hv, kb, setHeap } from './heapview.ts';
+import { fnAllocs, link, pathMatches, pathText, type FnAlloc, type Link } from './link.ts';
 import { lowerBound, type Trace } from './parse.ts';
-import { color, fit, fmt, label, matches, search, showTip } from './util.ts';
+import { color, fit, fmt, label, matches, search, setSearch, showTip } from './util.ts';
 
 const ROW = 16, LANE_HEAD = 18, AXIS = 20;
 
@@ -28,6 +29,10 @@ let hitIdx = -1;
 interface Loaded { trace: Trace; stats: FnStat[]; flame: FlameNode; times: Record<string, number> }
 
 const hInfo = document.getElementById('hinfo')!;
+const allocTable = document.getElementById('alloc')!;
+let lk: Link | null = null; // 두 로그 연결 (같은 실행일 때만)
+let focus: [number, number] | null = null; // 힙 블록을 클릭해 찾아간 구간 [스레드, 구간]. 흰 테두리로 표시
+let allocs: FnAlloc[] = [];
 
 // heap.bin: 파싱과 재생도 Worker에서 한다
 function loadHeap(src: File | string, label: string) {
@@ -55,7 +60,63 @@ function pair() {
   hInfo.querySelector('.warn')?.remove();
   if (!same)
     hInfo.insertAdjacentHTML('beforeend', `<b class="warn"> ⚠ trace.json과 다른 실행입니다 (heap pid ${h.pid}) — 시각을 맞출 수 없습니다</b>`);
+  // ponytail: 연결을 메인 스레드에서 한다. 샘플(블록 1만 3천 개)은 12ms. 수십만 블록이면 Worker로
+  lk = same ? link(trace, h) : null;
+  allocs = lk ? fnAllocs(trace, h, lk) : [];
+  renderAllocs();
+  highlight();
   hv.onTime();
+}
+
+// 함수별 할당: 함수가 실행 중일 때(자손 포함) 일어난 할당과, 그중 끝까지 해제 안 된 것
+function renderAllocs() {
+  if (!lk) return void (allocTable.innerHTML = `<tr><td class="cap">trace.json과 같은 실행의 heap.bin이 있어야 연결됩니다</td></tr>`);
+  const rows = [...allocs].sort((a, b) => b.leakBytes - a.leakBytes || b.bytes - a.bytes).slice(0, 30);
+  allocTable.innerHTML = `<tr><th>함수 (자손 포함)</th><th>할당</th><th>바이트</th><th>누수</th><th>누수 바이트</th></tr>` +
+    rows.map(r => `<tr data-name="${esc(r.name)}"><td style="border-left:4px solid ${color(r.name)}">${esc(r.name)}</td>` +
+      `<td>${r.allocs.toLocaleString()}</td><td>${kb(r.bytes)}</td><td>${r.leaks.toLocaleString()}</td><td>${kb(r.leakBytes)}</td></tr>`).join('');
+}
+
+// 검색어(= 선택한 함수)와 맞는 함수 아래에서 할당된 블록을 힙 지도에서 강조한다
+function highlight() {
+  const h = hv.heap;
+  if (!lk || !h || !search.q) {
+    hv.hl = null;
+    hv.sel = '';
+  } else {
+    const pm = pathMatches(lk, matched);
+    const hl = (hv.hl = new Uint8Array(h.count));
+    let n = 0, bytes = 0, leaks = 0, leakBytes = 0;
+    for (let b = 0; b < h.count; b++) {
+      if (lk.path[b] < 0 || !pm[lk.path[b]]) continue;
+      hl[b] = 1;
+      n++;
+      bytes += h.size[b];
+      if (h.t1[b] === Infinity) (leaks++, (leakBytes += h.size[b]));
+    }
+    hv.sel = ` · 선택 ${q.value.trim()}: 할당 ${n.toLocaleString()}회 ${kb(bytes)}, 누수 ${leaks.toLocaleString()}개 ${kb(leakBytes)}`;
+  }
+  drawHeap();
+}
+
+// 블록 → 할당 순간의 호출 경로
+hv.describe = b => (!lk || !trace ? '' : lk.path[b] < 0 ? '(트레이스 밖에서 할당)' : pathText(trace, lk, lk.path[b]));
+
+// 블록 클릭 → 그 블록을 할당한 함수 호출로 타임라인을 옮기고 그 함수를 선택한다
+hv.onBlockClick = b => {
+  if (!lk || !trace || lk.span[b] < 0) return;
+  const th = trace.threads[lk.thread[b]], i = lk.span[b];
+  const pad = Math.max((th.end[i] - th.start[i]) * 2, 2);
+  [t0, t1] = [th.start[i] - pad, th.end[i] + pad];
+  select(trace.names[th.name[i]], false);
+  focus = [lk.thread[b], i];
+};
+
+// 함수 하나를 선택: 검색창에 "이름"(정확히 일치)을 넣는다. 같은 걸 다시 고르면 해제
+function select(name: string, toggle = true) {
+  const v = `"${name}"`;
+  q.value = toggle && q.value === v ? '' : v;
+  setQuery(q.value);
 }
 
 // 힙 슬라이더 시각을 타임라인에 세로선으로 보여 준다 (두 로그는 같은 CLOCK_MONOTONIC)
@@ -118,14 +179,16 @@ table.addEventListener('click', e => {
     return renderTable();
   }
   const name = el.closest('tr')?.dataset.name;
-  if (name) {
-    q.value = name === search.q ? '' : name;
-    setQuery(q.value);
-  }
+  if (name) select(name);
+});
+
+allocTable.addEventListener('click', e => {
+  const name = (e.target as HTMLElement).closest('tr')?.dataset.name;
+  if (name && name !== '(트레이스 밖)') select(name);
 });
 
 function setQuery(v: string) {
-  search.q = v.trim().toLowerCase();
+  setSearch(v);
   hits = [];
   if (trace) {
     matched = Uint8Array.from(trace.names, n => +matches(n));
@@ -138,6 +201,7 @@ function setQuery(v: string) {
   qInfo.textContent = search.q ? `${hits.length.toLocaleString()}건` : '';
   dirty = true;
   drawFlame();
+  highlight();
 }
 
 // Enter: 다음 일치 구간으로 이동 (Shift+Enter: 이전)
@@ -234,6 +298,12 @@ function draw() {
   }
   ctx.globalAlpha = 1;
   for (const [id, x, y, w] of wide) label(ctx, trace.names[id], x, y, w, ROW);
+  if (focus) {
+    const [n, i] = focus, th = trace.threads[n];
+    ctx.strokeStyle = '#fff';
+    ctx.lineWidth = 2;
+    ctx.strokeRect((th.start[i] - t0) * scale, laneTop[n] + LANE_HEAD + th.depth[i] * ROW, Math.max(2, (th.end[i] - th.start[i]) * scale), ROW - 1);
+  }
 
   trace.threads.forEach((th, n) => {
     ctx.fillStyle = '#2b2f38';
@@ -253,10 +323,13 @@ function draw() {
   const [unit, div] = step >= 1e5 ? ['s', 1e6] : step >= 100 ? ['ms', 1e3] : ['µs', 1];
   const digits = Math.max(0, -Math.floor(Math.log10(step / div)));
   ctx.fillStyle = '#7b8394';
+  let labelEnd = -Infinity; // 라벨이 길어 앞 라벨과 겹치면 눈금만 긋고 글자는 건너뛴다
   for (let r = Math.ceil((t0 - trace.start) / step) * step; r + trace.start < t1; r += step) {
-    const x = (r + trace.start - t0) * scale;
+    const x = (r + trace.start - t0) * scale, text = `${(r / div).toFixed(digits)} ${unit}`;
     ctx.fillRect(x, AXIS - 6, 1, 6);
-    ctx.fillText(`${(r / div).toFixed(digits)} ${unit}`, x + 3, 8);
+    if (x + 3 < labelEnd) continue;
+    ctx.fillText(text, x + 3, 8);
+    labelEnd = x + 3 + ctx.measureText(text).width + 8;
   }
 }
 
@@ -296,9 +369,21 @@ canvas.addEventListener('wheel', e => {
   dirty = true;
 }, { passive: false });
 
-let dragX: number | null = null;
-canvas.addEventListener('mousedown', e => (dragX = e.clientX));
+let dragX: number | null = null, downX = 0, downY = 0;
+canvas.addEventListener('mousedown', e => {
+  dragX = downX = e.clientX;
+  downY = e.clientY;
+});
 addEventListener('mouseup', () => (dragX = null));
+// 클릭(끌지 않고 놓음): 그 함수를 선택한다. 힙 지도가 있으면 그 함수가 할당한 블록이 강조된다
+canvas.addEventListener('click', e => {
+  if (!trace || Math.abs(e.clientX - downX) > 3 || Math.abs(e.clientY - downY) > 3) return;
+  const hit = spanAt(e.offsetX, e.offsetY);
+  if (!hit) return;
+  select(trace.names[trace.threads[hit[0]].name[hit[1]]]);
+  focus = null;
+  if (lk) showTab('heapview');
+});
 addEventListener('mousemove', e => {
   if (dragX === null) return;
   const dt = ((e.clientX - dragX) / canvas.clientWidth) * (t1 - t0);
@@ -337,9 +422,11 @@ load(new URL('trace.json', location.href).href, 'public/trace.json');
 loadHeap(new URL('heap.bin', location.href).href, 'public/heap.bin');
 
 // 아래 패널 탭: 분석(플레임 그래프·Top 10) / 힙 지도
-document.getElementById('tabs')!.addEventListener('click', e => {
-  const tab = (e.target as HTMLElement).dataset.tab;
-  if (!tab) return;
+function showTab(tab: string) {
   for (const b of document.querySelectorAll<HTMLElement>('#tabs button')) b.classList.toggle('on', b.dataset.tab === tab);
   for (const p of document.querySelectorAll<HTMLElement>('.tab')) p.hidden = p.id !== tab;
+}
+document.getElementById('tabs')!.addEventListener('click', e => {
+  const tab = (e.target as HTMLElement).dataset.tab;
+  if (tab) showTab(tab);
 });

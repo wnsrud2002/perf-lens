@@ -24,9 +24,10 @@
     #heapbar button { background: #2b2f38; color: inherit; font: inherit; border: 0; border-radius: 3px; width: 28px; height: 22px; cursor: pointer; }
     #slider { flex: 1; min-width: 160px; }
     .key { display: inline-block; width: 9px; height: 9px; margin: 0 3px 0 8px; vertical-align: -1px; }
-    #heap { flex: 1; height: 100%; }
+    #heap { flex: 1; height: 100%; cursor: pointer; }
     #flame { flex: 1; height: 100%; cursor: pointer; }
-    #side { width: 540px; overflow: auto; border-left: 1px solid #2b2f38; }
+    #side, .side { width: 540px; overflow: auto; border-left: 1px solid #2b2f38; }
+    .hrow { flex: 1; min-height: 0; display: flex; }
     table { border-collapse: collapse; width: 100%; }
     th, td { padding: 3px 8px; text-align: right; white-space: nowrap; }
     th:first-child, td:first-child { text-align: left; }
@@ -65,7 +66,13 @@
       </div>
       <div class="cap" id="hstat"></div>
       <div class="cap" id="hinfo">heap.bin을 이 창에 드롭하세요 (trace.json과 함께 드롭해도 됩니다)</div>
-      <canvas id="heap"></canvas>
+      <div class="hrow">
+        <canvas id="heap"></canvas>
+        <div class="side">
+          <div class="cap">함수별 할당 — 행 클릭: 선택. 지도의 블록 클릭: 할당한 함수로 이동</div>
+          <table id="alloc"></table>
+        </div>
+      </div>
     </div>
   </div>
   <div id="tip"></div>

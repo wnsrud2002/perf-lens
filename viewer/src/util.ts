@@ -16,9 +16,16 @@ export function color(name: string) {
   return c;
 }
 
-// 검색어: 비어 있으면 모두 일치. 대소문자 무시 부분 일치
-export const search = { q: '' };
-export const matches = (name: string) => !search.q || name.toLowerCase().includes(search.q);
+// 검색어: 비어 있으면 모두 일치. 대소문자 무시 부분 일치, "따옴표"로 감싸면 정확히 일치
+// (타임라인에서 함수를 클릭하면 "이름"으로 들어간다. free를 골랐는데 free_request까지 잡히지 않게)
+export const search = { q: '', exact: false };
+export function setSearch(v: string) {
+  const m = v.trim().match(/^"(.*)"$/);
+  search.exact = !!m;
+  search.q = (m ? m[1] : v.trim()).toLowerCase();
+}
+export const matches = (name: string) =>
+  !search.q || (search.exact ? name.toLowerCase() === search.q : name.toLowerCase().includes(search.q));
 
 // 캔버스 크기를 CSS 크기 × devicePixelRatio에 맞추고 CSS 픽셀 좌표계로 되돌린다
 export function fit(canvas: HTMLCanvasElement, ctx: CanvasRenderingContext2D) {
