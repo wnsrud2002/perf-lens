@@ -10,6 +10,7 @@
 - 측정 환경: Jetson Orin Nano (전력 모드 MAXN_SUPER, `jetson_clocks` 적용: CPU 6코어 1.728GHz 고정), headless Chromium 153 (GPU 없음, 소프트웨어 래스터), 뷰포트 1400×800
   - `jetson_clocks`는 "GPU frequency scaling not supported" 오류를 내지만 CPU 고정은 적용된다(`scaling_min_freq` = `scaling_max_freq`로 확인). 측정은 CPU만 쓴다.
 - 측정 스크립트: `cd viewer && npm run bench -- ../targets/jq-trace.json 5` (5회 반복, 표는 중앙값)
+  - 최적화 전 수치는 `week3-baseline` 브랜치에서 잰다: `git switch week3-baseline && cd viewer && npm run bench -- ../targets/jq-trace.json 5`
   - 로딩: 페이지 열기부터 첫 화면이 그려질 때까지
   - 로딩 중 최장 멈춤: 로딩하는 동안 rAF 간격의 최댓값 (메인 스레드가 멈춘 가장 긴 시간)
   - 줌/팬: 전체 보기에서 매 프레임 휠(또는 드래그) 이벤트 하나씩 80프레임, 프레임 간격의 중앙값과 p95
@@ -64,7 +65,7 @@ Orin Nano 로딩 단계별 시간(최적화 후, Worker 안): 읽기 980 · JSON
 
 ## 남은 것
 
-- 맥에서 최적화 전 버전도 재기. 위 전후 표는 Orin Nano 기준이고, 맥은 최적화 후만 쟀다.
+- 맥에서 최적화 전 버전도 재기(`week3-baseline` 브랜치). 위 전후 표는 Orin Nano 기준이고, 맥은 최적화 후만 쟀다.
 - 로딩의 남은 병목은 읽기와 JSON.parse(1.8초). uftrace 출력은 한 줄에 이벤트 하나라서, 스트리밍 줄 파서로 바꾸면 104MB 문자열과 중간 객체를 만들지 않아도 된다. 1,000만 이벤트 규모가 필요해지면 한다.
 
 ## 검색 중 LOD
