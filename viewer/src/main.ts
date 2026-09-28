@@ -170,11 +170,18 @@ function draw() {
         }
         // LOD: 1px보다 좁은 구간은 이 픽셀 칸에서 시작하는 것들을 한 칸으로 합쳐 한 번만 그린다.
         // 그래서 한 줄을 그리는 비용이 보이는 구간 수가 아니라 화면 폭(px)에 비례한다
-        // ponytail: 칸 색은 그 칸의 첫 구간 것. 검색어와 맞는 구간이 칸 안에 숨어 있으면 강조가 안 보인다. 필요하면 칸마다 일치 여부를 OR
         const px = Math.floor(x);
-        cell(id, px, y);
         const next = t0 + (px + 1) / scale;
         const k2 = lowerBound(idx, th.start, next, k + 1);
+        // 칸 색은 첫 구간 것. 검색 중에는 칸 안에 숨은 일치 구간이 있으면 그걸로 칠해 강조가 사라지지 않게 한다
+        let cid = id;
+        if (hits.length && !matched[id])
+          for (let j = k + 1; j < k2; j++)
+            if (matched[th.name[idx[j]]]) {
+              cid = th.name[idx[j]];
+              break;
+            }
+        cell(cid, px, y);
         // 건너뛴 것 중 마지막 구간은 다음 칸까지 이어질 수 있으니 그건 따로 그린다
         k = k2 - 1 > k && th.end[idx[k2 - 1]] > next ? k2 - 1 : k2;
       }
