@@ -71,6 +71,7 @@ async function once() {
 
 const rs = [];
 for (let i = 0; i < +runs; i++) rs.push(await once());
+console.log(`${process.env.CHANNEL ?? 'playwright chromium'} ${browser.version()}`);
 console.log(rs[0].info);
 const row = (k, f) => console.log(k.padEnd(28), f);
 row('로딩 → 첫 화면 (ms)', rs.map(r => r.load.toFixed(0)).join(' / '));
