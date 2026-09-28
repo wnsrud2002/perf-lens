@@ -7,8 +7,9 @@
   uftrace record --no-libcall -d jqtrace jq-1.7.1/jq -n '[range(400)] | map({a:., b:(.*2|tostring)}) | group_by(.a%10) | length'
   uftrace dump -d jqtrace --chrome > jq-trace.json
   ```
-- 측정 환경: Jetson Orin Nano (전력 모드 MAXN_SUPER, `jetson_clocks` **미적용**: sudo 권한 없음), headless Chromium 153 (GPU 없음, 소프트웨어 래스터), 뷰포트 1400×800
-- 측정 스크립트: `cd viewer && npm run bench -- ../targets/jq-trace.json 3` (3회 반복, 표는 중앙값)
+- 측정 환경: Jetson Orin Nano (전력 모드 MAXN_SUPER, `jetson_clocks` 적용: CPU 6코어 1.728GHz 고정), headless Chromium 153 (GPU 없음, 소프트웨어 래스터), 뷰포트 1400×800
+  - `jetson_clocks`는 "GPU frequency scaling not supported" 오류를 내지만 CPU 고정은 적용된다(`scaling_min_freq` = `scaling_max_freq`로 확인). 측정은 CPU만 쓴다.
+- 측정 스크립트: `cd viewer && npm run bench -- ../targets/jq-trace.json 5` (5회 반복, 표는 중앙값)
   - 로딩: 페이지 열기부터 첫 화면이 그려질 때까지
   - 로딩 중 최장 멈춤: 로딩하는 동안 rAF 간격의 최댓값 (메인 스레드가 멈춘 가장 긴 시간)
   - 줌/팬: 전체 보기에서 매 프레임 휠(또는 드래그) 이벤트 하나씩 80프레임, 프레임 간격의 중앙값과 p95
@@ -18,13 +19,15 @@
 
 | 지표 | 최적화 전 | 최적화 후 | 변화 |
 |---|---|---|---|
-| 로딩 → 첫 화면 | 3,105 ms | 2,152 ms | −31% |
-| 로딩 중 최장 멈춤 | 1,683 ms | 117 ms | −93% |
-| 줌 프레임 (중앙 / p95) | 400 / 917 ms (3 fps) | 16.7 / 16.8 ms (60 fps) | 24배 |
-| 팬 프레임 (중앙 / p95) | 950 / 1,000 ms (1 fps) | 16.7 / 16.8 ms (60 fps) | 57배 |
+| 로딩 → 첫 화면 | 3,041 ms | 2,063 ms | −32% |
+| 로딩 중 최장 멈춤 | 1,550 ms | 83 ms | −95% |
+| 줌 프레임 (중앙 / p95) | 350 / 817 ms (3 fps) | 16.7 / 16.7 ms (60 fps) | 21배 |
+| 팬 프레임 (중앙 / p95) | 850 / 900 ms (1 fps) | 16.7 / 16.8 ms (60 fps) | 51배 |
 | JS 메모리 | 50 MB | 23 MB | −54% |
 
-로딩 단계별 시간(최적화 후, Worker 안): 읽기 960 · JSON.parse 870 · 구간 변환 500 · 분석 85 ms
+로딩 단계별 시간(최적화 후, Worker 안): 읽기 980 · JSON.parse 920 · 구간 변환 560 · 분석 77 ms
+
+60fps는 화면 주사율 상한이라 여기서 더 올라가지 않는다. 최적화 후 한 프레임의 JS 그리기 시간은 몇 ms 수준이다.
 
 ## 한 일과 효과
 
@@ -48,7 +51,6 @@
 ## 남은 것
 
 - 맥 Chrome(GPU)에서 같은 스크립트로 다시 재기(`CHANNEL=chrome npm run bench -- <trace.json>`). 이 표는 Orin Nano headless 기준이다.
-- `jetson_clocks` 적용 후 재측정
 - 로딩의 남은 병목은 읽기와 JSON.parse(1.8초). uftrace 출력은 한 줄에 이벤트 하나라서, 스트리밍 줄 파서로 바꾸면 104MB 문자열과 중간 객체를 만들지 않아도 된다. 1,000만 이벤트 규모가 필요해지면 한다.
 
 ## 검색 중 LOD
