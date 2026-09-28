@@ -25,6 +25,20 @@
 | 팬 프레임 (중앙 / p95) | 850 / 900 ms (1 fps) | 16.7 / 16.8 ms (60 fps) | 51배 |
 | JS 메모리 | 50 MB | 23 MB | −54% |
 
+### 맥에서 (최적화 후만)
+
+MacBook Air(Apple Silicon), 3회 중앙값. 같은 `bench.mjs`와 같은 트레이스로 쟀다.
+
+| 지표 | Orin Nano, headless | 맥, headless Chromium 153 | 맥, Chrome (`CHANNEL=chrome`) |
+|---|---|---|---|
+| 로딩 → 첫 화면 | 2,063 ms | 442 ms | 610 ms |
+| 로딩 중 최장 멈춤 | 83 ms | 17 ms | 83 ms |
+| 줌 프레임 (중앙 / p95) | 16.7 / 16.7 ms | 16.7 / 16.7 ms | 16.7 / 16.8 ms |
+| 팬 프레임 (중앙 / p95) | 16.7 / 16.8 ms | 16.7 / 16.8 ms | 16.7 / 16.7 ms |
+| JS 메모리 | 23 MB | 23 MB | 23 MB |
+
+맥 headless 로딩 단계: 읽기 146 · JSON.parse 162 · 구간 변환 91 · 분석 21 ms. 모든 환경에서 60fps 상한에 닿는다.
+
 로딩 단계별 시간(최적화 후, Worker 안): 읽기 980 · JSON.parse 920 · 구간 변환 560 · 분석 77 ms
 
 60fps는 화면 주사율 상한이라 이 측정으로는 더 올라가지 않는다.
@@ -50,7 +64,7 @@
 
 ## 남은 것
 
-- 맥 Chrome(GPU)에서 같은 스크립트로 다시 재기(`CHANNEL=chrome npm run bench -- <trace.json>`). 이 표는 Orin Nano headless 기준이다.
+- 맥에서 최적화 전 버전도 재기. 위 전후 표는 Orin Nano 기준이고, 맥은 최적화 후만 쟀다.
 - 로딩의 남은 병목은 읽기와 JSON.parse(1.8초). uftrace 출력은 한 줄에 이벤트 하나라서, 스트리밍 줄 파서로 바꾸면 104MB 문자열과 중간 객체를 만들지 않아도 된다. 1,000만 이벤트 규모가 필요해지면 한다.
 
 ## 검색 중 LOD
