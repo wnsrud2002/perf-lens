@@ -6,7 +6,7 @@
 // 그래서 printf 대신 write, 버퍼는 mmap, 시각은 clock_gettime(vDSO)만 쓴다.
 #define _GNU_SOURCE
 #include <dlfcn.h>
-#include <errno.h> // program_invocation_short_name
+#include <errno.h>
 #include <fcntl.h>
 #include <pthread.h>
 #include <stdint.h>
@@ -64,8 +64,10 @@ static void write_all(const void *p, size_t len)
     const char *c = p;
     while (len) {
         ssize_t w = write(fd, c, len);
+        if (w < 0 && errno == EINTR)
+            continue; // 시그널에 끊긴 건 다시 쓴다. 그냥 두면 버퍼 한 통(레코드 4096개)을 잃는다
         if (w <= 0)
-            return; // 기록 실패로 대상 프로그램을 죽이지는 않는다
+            return; // 그 밖의 실패로 대상 프로그램을 죽이지는 않는다
         c += w;
         len -= w;
     }
