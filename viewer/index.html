@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>perf-lens</title>
+  <style>
+    html, body { margin: 0; height: 100%; background: #16181d; color: #d8dee9; font: 12px ui-monospace, Menlo, monospace; }
+    body { display: flex; flex-direction: column; }
+    header { display: flex; gap: 12px; align-items: center; padding: 6px 10px; border-bottom: 1px solid #2b2f38; }
+    #info { flex: 1; }
+    input { background: #0f1115; color: inherit; font: inherit; border: 1px solid #3b4252; border-radius: 3px; padding: 3px 6px; width: 220px; }
+    canvas { width: 100%; display: block; min-height: 0; }
+    #c { flex: 1; cursor: grab; }
+    #c:active { cursor: grabbing; }
+    #bottom { height: 45%; display: flex; border-top: 1px solid #2b2f38; }
+    #flame { flex: 1; height: 100%; cursor: pointer; }
+    #side { width: 540px; overflow: auto; border-left: 1px solid #2b2f38; }
+    table { border-collapse: collapse; width: 100%; }
+    th, td { padding: 3px 8px; text-align: right; white-space: nowrap; }
+    th:first-child, td:first-child { text-align: left; }
+    th { position: sticky; top: 0; background: #1e2128; color: #7b8394; font-weight: normal; }
+    th[data-sort] { cursor: pointer; }
+    th.on { color: #88c0d0; }
+    tr[data-name] { cursor: pointer; }
+    tr[data-name]:hover { background: #242832; }
+    .cap { padding: 6px 8px; color: #7b8394; }
+    #tip { position: fixed; pointer-events: none; background: #000d; padding: 4px 6px; border-radius: 3px; white-space: pre; display: none; z-index: 1; }
+    body.drag { outline: 3px dashed #88c0d0; outline-offset: -3px; }
+  </style>
+</head>
+<body>
+  <header>
+    <span id="info">trace.json을 이 창에 드롭하세요. 휠: 줌, 드래그: 이동, 더블클릭: 전체 보기</span>
+    <input id="q" placeholder="함수 검색 (Enter: 다음)" />
+    <span id="qinfo"></span>
+  </header>
+  <canvas id="c"></canvas>
+  <div id="bottom">
+    <canvas id="flame"></canvas>
+    <div id="side">
+      <div class="cap">느린 함수 Top 10 — 머리글 클릭: 정렬, 행 클릭: 검색</div>
+      <table id="top"></table>
+    </div>
+  </div>
+  <div id="tip"></div>
+  <script type="module" src="/src/main.ts"></script>
+</body>
+</html>
