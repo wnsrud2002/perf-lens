@@ -39,7 +39,7 @@ MacBook Air(Apple Silicon), 3회 중앙값. 같은 `bench.mjs`와 같은 트레�
 
 맥 headless 로딩 단계: 읽기 146 · JSON.parse 162 · 구간 변환 91 · 분석 21 ms. 모든 환경에서 60fps 상한에 닿는다.
 
-로딩 단계별 시간(최적화 후, Worker 안): 읽기 980 · JSON.parse 920 · 구간 변환 560 · 분석 77 ms
+Orin Nano 로딩 단계별 시간(최적화 후, Worker 안): 읽기 980 · JSON.parse 920 · 구간 변환 560 · 분석 77 ms
 
 60fps는 화면 주사율 상한이라 이 측정으로는 더 올라가지 않는다.
 
