@@ -23,8 +23,8 @@ export interface Heap {
   unknownFrees: number; // 후킹 전에 할당됐거나 memalign 등으로 할당된 블록의 free
 }
 
-const HEADER = 24, REC = 40;
-const MALLOC = 1, FREE = 2, CALLOC = 3, REALLOC = 4;
+const HEADER = 24, BLOCK = 16, REC = 16;
+const MALLOC = 1, FREE = 2, CALLOC = 3, REALLOC = 4, REALLOC_OLD = 5;
 const REGION_GAP = 64 * 1024; // 이보다 멀리 떨어진 블록은 다른 영역으로 나눈다
 
 // glibc 64비트 청크 크기: 사용자 크기 + 헤더 8바이트를 16바이트 단위로 올림, 최소 32바이트.
@@ -36,16 +36,28 @@ export function parseHeap(buf: ArrayBuffer): Heap {
   const v = new DataView(buf);
   const magic = new TextDecoder().decode(new Uint8Array(buf, 0, 7));
   if (magic !== 'HEAPMAP') throw new Error('heap.bin이 아님');
-  const recSize = v.getUint32(12, true);
-  if (recSize !== REC) throw new Error(`레코드 크기 ${recSize} (기대 ${REC})`);
+  const version = v.getUint32(8, true), recSize = v.getUint32(12, true);
+  if (version !== 2 || recSize !== REC) throw new Error(`version ${version}, 레코드 ${recSize}바이트: v2(16바이트)만 읽는다`);
   const pid = v.getUint32(16, true);
-  const n = Math.floor((buf.byteLength - HEADER) / REC);
   const u64 = (o: number) => v.getUint32(o, true) + v.getUint32(o + 4, true) * 2 ** 32;
 
-  // 레코드는 스레드 버퍼 단위로 쓰여서 시각 순이 아니다. 시각 순으로 재생한다
-  const ts = new Float64Array(n);
-  for (let i = 0; i < n; i++) ts[i] = u64(HEADER + i * REC);
-  const order = Uint32Array.from({ length: n }, (_, i) => i).sort((a, b) => ts[a] - ts[b]);
+  // 묶음(스레드 버퍼 하나) 단위로 풀어 레코드마다 시각·tid·오프셋을 모은다
+  const tsL: number[] = [], tidL: number[] = [], offL: number[] = [];
+  for (let o = HEADER; o + BLOCK <= buf.byteLength; ) {
+    const tid = v.getUint32(o, true), count = v.getUint32(o + 4, true), base = u64(o + 8);
+    o += BLOCK;
+    if (o + count * REC > buf.byteLength) break; // 잘린 묶음 (강제 종료 등)
+    for (let k = 0; k < count; k++, o += REC) {
+      tsL.push(base + v.getUint32(o, true));
+      tidL.push(tid);
+      offL.push(o);
+    }
+  }
+  const n = tsL.length;
+  const ts = Float64Array.from(tsL);
+  // 레코드는 스레드 버퍼 단위로 쓰여서 시각 순이 아니다. 시각 순으로 재생한다.
+  // 같은 시각이면 원래 순서를 지킨다: realloc_old가 realloc보다 먼저 와야 제자리 realloc이 안 꼬인다
+  const order = Uint32Array.from({ length: n }, (_, i) => i).sort((a, b) => ts[a] - ts[b] || a - b);
 
   const addr: number[] = [], size: number[] = [], t0: number[] = [], t1: number[] = [], tid: number[] = [];
   const live = new Map<number, number>(); // 주소 → 블록 번호
@@ -59,13 +71,14 @@ export function parseHeap(buf: ArrayBuffer): Heap {
   };
 
   for (const i of order) {
-    const o = HEADER + i * REC, t = ts[i] / 1000;
-    const a = u64(o + 8), s = u64(o + 16), old = u64(o + 24), type = v.getUint8(o + 36);
-    if (type === FREE) {
+    const o = offL[i], t = ts[i] / 1000;
+    // addr_type: 하위 56비트 주소 | type << 56. 위 32비트 중 아래 24비트가 주소의 32~55비트다
+    const hi = v.getUint32(o + 12, true), type = hi >>> 24;
+    const a = v.getUint32(o + 8, true) + (hi & 0xffffff) * 2 ** 32, s = v.getUint32(o + 4, true);
+    if (type === FREE || type === REALLOC_OLD) {
       if (a && !close(a, t)) unknownFrees++;
       continue;
     }
-    if (type === REALLOC && old && !close(old, t)) unknownFrees++;
     if (type !== MALLOC && type !== CALLOC && type !== REALLOC) continue;
     if (!a) continue; // 할당 실패
     close(a, t); // 같은 주소가 살아 있으면(드묾) 앞의 것을 닫는다
@@ -74,7 +87,7 @@ export function parseHeap(buf: ArrayBuffer): Heap {
     size.push(s);
     t0.push(t);
     t1.push(Infinity);
-    tid.push(v.getUint32(o + 32, true));
+    tid.push(tidL[i]);
   }
 
   const count = addr.length;

@@ -2,21 +2,24 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { chunk, parseHeap, stateAt } from './heap.ts';
 
-// heap.bin을 직접 만든다: [ts(ns), type, addr, size, old, tid]
+// heap.bin(v2)을 직접 만든다: [ts(ns), type, addr, size, old, tid]
+// 레코드마다 묶음 하나(dt 0). realloc에 old가 있으면 libheapmap처럼 realloc_old(5) 레코드를 앞에 붙인다
 function bin(recs: number[][]) {
-  const buf = new ArrayBuffer(24 + recs.length * 40), v = new DataView(buf);
+  const rs = recs.flatMap(([ts, type, addr, size, old, tid]) =>
+    type === 4 && old ? [[ts, 5, old, 0, tid], [ts, 4, addr, size, tid]] : [[ts, type, addr, size, tid]]);
+  const buf = new ArrayBuffer(24 + rs.length * 32), v = new DataView(buf);
   new Uint8Array(buf).set(new TextEncoder().encode('HEAPMAP\0'));
-  v.setUint32(8, 1, true);
-  v.setUint32(12, 40, true);
+  v.setUint32(8, 2, true);
+  v.setUint32(12, 16, true);
   v.setUint32(16, 42, true);
-  recs.forEach(([ts, type, addr, size, old, tid], i) => {
-    const o = 24 + i * 40;
-    v.setBigUint64(o, BigInt(ts), true);
-    v.setBigUint64(o + 8, BigInt(addr), true);
-    v.setBigUint64(o + 16, BigInt(size), true);
-    v.setBigUint64(o + 24, BigInt(old), true);
-    v.setUint32(o + 32, tid, true);
-    v.setUint8(o + 36, type);
+  rs.forEach(([ts, type, addr, size, tid], i) => {
+    const o = 24 + i * 32;
+    v.setUint32(o, tid, true); // 묶음 머리: tid, count, base_ts
+    v.setUint32(o + 4, 1, true);
+    v.setBigUint64(o + 8, BigInt(ts), true);
+    v.setUint32(o + 16, 0, true); // 레코드: dt, size, addr | type << 56
+    v.setUint32(o + 20, size, true);
+    v.setBigUint64(o + 24, BigInt(addr) | (BigInt(type) << 56n), true);
   });
   return buf;
 }
@@ -37,7 +40,7 @@ test('재생: 순서 섞인 레코드, free, realloc, 모르는 free, 누수, �
     [6000, 1, A + 10_000_000, 50, 0, 1], // 멀리 떨어진 블록 → 새 영역, 누수
   ]));
   assert.equal(h.pid, 42);
-  assert.equal(h.records, 6);
+  assert.equal(h.records, 7); // realloc 하나가 realloc_old + realloc 두 레코드가 된다
   assert.equal(h.count, 4);
   assert.deepEqual([...h.addr], [A, A + 32, A + 1000, A + 10_000_000]);
   assert.deepEqual([...h.t0], [1, 2, 4, 6]);

@@ -18,10 +18,11 @@
 
 #include "heapmap.h"
 
-#define BUF_RECS 4096 // 스레드마다 레코드 4096개(160KB)를 모았다가 write 한 번
+#define BUF_RECS 4096 // 스레드마다 레코드 4096개(64KB)를 모았다가 write 한 번
 
+// 묶음 머리와 레코드를 붙여 두어 write 한 번으로 통째로 쓴다
 typedef struct {
-    uint32_t n;
+    hm_block_t hdr;
     hm_record_t recs[BUF_RECS];
 } tbuf_t;
 
@@ -75,10 +76,10 @@ static void write_all(const void *p, size_t len)
 
 static void flush(tbuf_t *b)
 {
-    if (b && b->n && fd >= 0)
-        write_all(b->recs, b->n * sizeof(hm_record_t)); // O_APPEND라 스레드끼리 섞여도 레코드가 쪼개지지 않는다
+    if (b && b->hdr.count && fd >= 0) // O_APPEND라 스레드끼리 섞여도 묶음이 쪼개지지 않는다
+        write_all(&b->hdr, sizeof b->hdr + b->hdr.count * sizeof(hm_record_t));
     if (b)
-        b->n = 0;
+        b->hdr.count = 0;
 }
 
 // 스레드가 끝날 때 pthread가 불러 준다
@@ -93,7 +94,7 @@ static void thread_exit(void *p)
 static void in_child(void)
 {
     if (buf)
-        buf->n = 0;
+        buf->hdr.count = 0;
     fd = -1;
 }
 
@@ -130,22 +131,21 @@ static uint64_t now(void)
     return (uint64_t)ts.tv_sec * 1000000000u + ts.tv_nsec;
 }
 
-static void record(uint64_t ts, uint8_t type, void *addr, size_t size, void *old)
+// 레코드를 40바이트에서 16바이트로 줄였다(tid는 묶음 머리로, 시각은 묶음 기준 차이로, type은 주소 위 8비트로).
+// 이벤트당 비용의 절반 가까이가 쓰는 바이트 수에 비례했다. write 횟수를 1/16로 줄여도 효과가 없었다 (BENCH.md)
+static void record(uint64_t ts, uint8_t type, void *addr, size_t size)
 {
     if (fd < 0)
         return;
     if (!my_tid)
         my_tid = gettid();
     hm_record_t r = {
-        .ts = ts,
-        .addr = (uint64_t)addr,
-        .size = size,
-        .old = (uint64_t)old,
-        .tid = my_tid,
-        .type = type,
+        .size = size > UINT32_MAX ? UINT32_MAX : (uint32_t)size,
+        .addr_type = ((uint64_t)addr & ((1ull << HM_ADDR_BITS) - 1)) | (uint64_t)type << HM_ADDR_BITS,
     };
     if (direct) {
-        write_all(&r, sizeof r);
+        struct { hm_block_t h; hm_record_t r; } one = {{my_tid, 1, ts}, r};
+        write_all(&one, sizeof one);
         return;
     }
     if (!buf) {
@@ -153,10 +153,17 @@ static void record(uint64_t ts, uint8_t type, void *addr, size_t size, void *old
         if (m == MAP_FAILED)
             return;
         buf = m;
+        buf->hdr.tid = my_tid;
         pthread_setspecific(key, buf);
     }
-    buf->recs[buf->n++] = r;
-    if (buf->n == BUF_RECS)
+    hm_block_t *h = &buf->hdr;
+    if (h->count && (ts < h->base_ts || ts - h->base_ts > UINT32_MAX))
+        flush(buf); // dt가 u32에 안 들어가면(4.29초 넘게 쉬었다 등) 새 묶음
+    if (!h->count)
+        h->base_ts = ts;
+    r.dt = (uint32_t)(ts - h->base_ts);
+    buf->recs[h->count++] = r;
+    if (h->count == BUF_RECS)
         flush(buf);
 }
 
@@ -185,7 +192,7 @@ void *malloc(size_t size)
         return real_malloc(size);
     in_hook = 1;
     void *p = real_malloc(size);
-    record(now(), HM_MALLOC, p, size, NULL);
+    record(now(), HM_MALLOC, p, size);
     in_hook = 0;
     return p;
 }
@@ -201,7 +208,7 @@ void *calloc(size_t n, size_t size)
         return real_calloc(n, size);
     in_hook = 1;
     void *p = real_calloc(n, size);
-    record(now(), HM_CALLOC, p, n * size, NULL);
+    record(now(), HM_CALLOC, p, n * size);
     in_hook = 0;
     return p;
 }
@@ -224,7 +231,12 @@ void *realloc(void *old, size_t size)
         return real_realloc(old, size);
     in_hook = 1;
     void *p = real_realloc(old, size);
-    record(now(), HM_REALLOC, p, size, old);
+    uint64_t ts = now();
+    // 실패(NULL인데 size > 0)면 원래 블록은 그대로 살아 있다. realloc(p, 0)은 p를 놓고 NULL을 준다
+    if (old && (p || !size))
+        record(ts, HM_REALLOC_OLD, old, 0);
+    if (p)
+        record(ts, HM_REALLOC, p, size);
     in_hook = 0;
     return p;
 }
@@ -247,7 +259,7 @@ void free(void *p)
     // 로그에서 '할당 → 해제' 순서가 뒤집힌다. (할당은 반대로 받은 뒤에 잰다)
     uint64_t ts = now();
     real_free(p);
-    record(ts, HM_FREE, p, 0, NULL);
+    record(ts, HM_FREE, p, 0);
     in_hook = 0;
 }
 
