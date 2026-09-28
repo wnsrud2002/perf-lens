@@ -1,4 +1,5 @@
 import type { FlameNode, FnStat } from './analyze.ts';
+import { diff, type Snapshot } from './compare.ts';
 import { drawFlame, setFlame } from './flame.ts';
 import type { Heap } from './heap.ts';
 import { draw as drawHeap, hv, kb, setHeap } from './heapview.ts';
@@ -31,6 +32,8 @@ interface Loaded { trace: Trace; stats: FnStat[]; flame: FlameNode; times: Recor
 const hInfo = document.getElementById('hinfo')!;
 const allocTable = document.getElementById('alloc')!;
 let lk: Link | null = null; // 두 로그 연결 (같은 실행일 때만)
+let traceLabel = '';
+let baseline: Snapshot | null = null; // 전후 비교의 기준(전)
 let focus: [number, number] | null = null; // 힙 블록을 클릭해 찾아간 구간 [스레드, 구간]. 흰 테두리로 표시
 let allocs: FnAlloc[] = [];
 
@@ -65,6 +68,7 @@ function pair() {
   allocs = lk ? fnAllocs(trace, h, lk) : [];
   renderAllocs();
   highlight();
+  renderCompare();
   hv.onTime();
 }
 
@@ -97,6 +101,53 @@ function highlight() {
     hv.sel = ` · 선택 ${q.value.trim()}: 할당 ${n.toLocaleString()}회 ${kb(bytes)}, 누수 ${leaks.toLocaleString()}개 ${kb(leakBytes)}`;
   }
   drawHeap();
+}
+
+// 전후 비교 ----------------------------------------------------------------
+const cmpTable = document.getElementById('cmp')!, cmpSum = document.getElementById('cmpsum')!;
+const cmpInfo = document.getElementById('cmpinfo')!;
+
+function snapshot(): Snapshot | null {
+  if (!trace) return null;
+  const h = hv.heap;
+  let leaks = NaN, leakBytes = NaN;
+  if (h && lk) {
+    leaks = leakBytes = 0;
+    for (let b = 0; b < h.count; b++) if (h.t1[b] === Infinity) (leaks++, (leakBytes += h.size[b]));
+  }
+  return { label: traceLabel, duration: trace.end - trace.start, stats, allocs, leaks, leakBytes };
+}
+
+document.getElementById('pin')!.addEventListener('click', () => {
+  baseline = snapshot();
+  if (baseline) cmpInfo.textContent = `기준(전): ${baseline.label} — 이제 고친 버전의 파일을 드롭하세요`;
+  renderCompare();
+});
+
+// 변화율: 줄면 초록, 늘면 빨강
+function change(a: number | undefined, b: number | undefined) {
+  if (a === undefined) return b ? '<span class="up">새로 생김</span>' : '';
+  if (b === undefined) return '<span class="down">사라짐</span>';
+  if (!a) return b ? '<span class="up">+∞</span>' : '0%';
+  const r = (b - a) / a;
+  return `<span class="${r < 0 ? 'down' : r > 0 ? 'up' : ''}">${r > 0 ? '+' : ''}${(r * 100).toFixed(1)}%</span>`;
+}
+
+function renderCompare() {
+  const cur = snapshot();
+  if (!baseline || !cur) return;
+  const leak = (s: Snapshot) => (isNaN(s.leaks) ? '(heap.bin 없음)' : `${s.leaks.toLocaleString()}개 ${kb(s.leakBytes)}`);
+  cmpSum.innerHTML = `실행 시간 ${fmt(baseline.duration)} → ${fmt(cur.duration)} ${change(baseline.duration, cur.duration)} · ` +
+    `누수 후보 ${leak(baseline)} → ${leak(cur)}` +
+    (isNaN(baseline.leaks) || isNaN(cur.leaks) ? '' : ` ${change(baseline.leakBytes, cur.leakBytes)}`);
+  const t = (v?: number) => (v === undefined ? '' : fmt(v));
+  const n = (v?: number) => (v === undefined ? '' : v.toLocaleString());
+  cmpTable.innerHTML = `<tr><th>함수</th><th>total 전</th><th>total 후</th><th>변화</th><th>self 전</th><th>self 후</th>` +
+    `<th>호출 전</th><th>호출 후</th><th>누수 전</th><th>누수 후</th></tr>` +
+    diff(baseline, cur).slice(0, 40).map(r => `<tr data-name="${esc(r.name)}"><td style="border-left:4px solid ${color(r.name)}">${esc(r.name)}</td>` +
+      `<td>${t(r.before?.total)}</td><td>${t(r.after?.total)}</td><td>${change(r.before?.total, r.after?.total)}</td>` +
+      `<td>${t(r.before?.self)}</td><td>${t(r.after?.self)}</td><td>${n(r.before?.calls)}</td><td>${n(r.after?.calls)}</td>` +
+      `<td>${r.allocBefore ? kb(r.allocBefore.leakBytes) : ''}</td><td>${r.allocAfter ? kb(r.allocAfter.leakBytes) : ''}</td></tr>`).join('');
 }
 
 // 블록 → 할당 순간의 호출 경로
@@ -132,6 +183,7 @@ function load(src: File | string, label: string) {
     w.terminate();
     if (!e.data) return void (info.textContent = `${label}: 읽지 못함 — trace.json을 이 창에 드롭하세요`);
     ({ trace, stats } = e.data);
+    traceLabel = label;
     pair();
     const tr = trace!;
     const stages = Object.entries(e.data.times).map(([k, v]) => `${k} ${v.toFixed(0)}`).join(', ');
@@ -152,6 +204,7 @@ function load(src: File | string, label: string) {
     });
     setFlame(e.data.flame);
     renderTable();
+    renderCompare();
     setQuery(q.value);
     resetView();
   };

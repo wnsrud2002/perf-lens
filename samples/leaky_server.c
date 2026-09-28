@@ -4,6 +4,7 @@
 //   느린 함수 2: lookup_route()  — 정렬된 테이블을 선형 탐색 + 매번 strcmp
 //   누수      : parse_request() — 요청마다 header 사본을 malloc하고 free하지 않음
 //   단편화    : cache_put()     — 크고 작은 블록을 번갈아 할당하고 작은 것만 해제
+// -DFIXED로 빌드하면 앞의 셋을 고친 버전이 된다 (전후 비교 데모: make trace-fixed.json)
 #include <pthread.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -27,18 +28,30 @@ typedef struct {
 static NOINLINE unsigned checksum(const char *buf, size_t len)
 {
     unsigned sum = 0;
+#ifdef FIXED
+    for (size_t i = 0; i < len; i++) // 한 번만 훑는다
+        sum = sum * 31 + (unsigned char)buf[i];
+#else
     for (size_t i = 0; i < len; i++)
         for (size_t j = 0; j <= i; j++)
             sum = sum * 31 + (unsigned char)buf[j];
+#endif
     return sum;
 }
 
 static NOINLINE int lookup_route(const char *path)
 {
+#ifdef FIXED
+    // 경로 끝의 번호가 곧 테이블 인덱스다. 한 번만 비교해 확인한다
+    const char *num = strrchr(path, '/');
+    int i = num ? atoi(num + 1) : -1;
+    return i >= 0 && i < N_ROUTES && strcmp(routes[i], path) == 0 ? i : -1;
+#else
     for (int i = 0; i < N_ROUTES; i++)
         if (strcmp(routes[i], path) == 0)
             return i;
     return -1;
+#endif
 }
 
 static NOINLINE char *dup_token(const char *s, size_t n)
@@ -62,7 +75,11 @@ static NOINLINE void free_request(request_t *req)
 {
     free(req->method);
     free(req->path);
+#ifdef FIXED
+    free(req->header);
+#else
     // BUG(의도적): free(req->header) 누락
+#endif
 }
 
 static NOINLINE void cache_put(cache_t *c, unsigned key)

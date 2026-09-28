@@ -28,6 +28,10 @@
     #flame { flex: 1; height: 100%; cursor: pointer; }
     #side, .side { width: 540px; overflow: auto; border-left: 1px solid #2b2f38; }
     .hrow { flex: 1; min-height: 0; display: flex; }
+    #compare { flex-direction: column; }
+    .scroll { flex: 1; min-height: 0; overflow: auto; }
+    .down { color: #6fcf97; }
+    .up { color: #e5484d; }
     table { border-collapse: collapse; width: 100%; }
     th, td { padding: 3px 8px; text-align: right; white-space: nowrap; }
     th:first-child, td:first-child { text-align: left; }
@@ -50,7 +54,7 @@
   </header>
   <canvas id="c"></canvas>
   <div id="bottom">
-    <nav id="tabs"><button data-tab="analysis" class="on">분석</button><button data-tab="heapview">힙 지도</button></nav>
+    <nav id="tabs"><button data-tab="analysis" class="on">분석</button><button data-tab="heapview">힙 지도</button><button data-tab="compare">전후 비교</button></nav>
     <div id="analysis" class="tab">
       <canvas id="flame"></canvas>
       <div id="side">
@@ -73,6 +77,14 @@
           <table id="alloc"></table>
         </div>
       </div>
+    </div>
+    <div id="compare" class="tab" hidden>
+      <div id="heapbar">
+        <button id="pin" style="width:auto;padding:0 10px">지금 결과를 기준(전)으로</button>
+        <span id="cmpinfo" class="cap">기준을 정한 뒤 고친 버전의 trace.json(과 heap.bin)을 드롭하면 함수별로 비교합니다</span>
+      </div>
+      <div class="cap" id="cmpsum"></div>
+      <div class="scroll"><table id="cmp"></table></div>
     </div>
   </div>
   <div id="tip"></div>
