@@ -5,9 +5,10 @@ dist/
 # 수집 결과 (make trace.json / scripts/pull.sh로 다시 만든다)
 uftrace.data*/
 gmon.out
-trace.json
+trace*.json
 heap.bin
 samples/leaky_server
+samples/fixed_server
 
 # 측정용 외부 소스와 대용량 트레이스 (BENCH.md에 재현 명령이 있다)
 targets/
