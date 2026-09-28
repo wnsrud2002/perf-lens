@@ -12,7 +12,8 @@ if (!file) throw new Error('usage: node bench.mjs <trace.json> [runs]');
 rmSync('dist/trace.json', { force: true });
 symlinkSync(resolve(file), 'dist/trace.json');
 const server = await preview({ preview: { port: 4174, strictPort: true }, logLevel: 'silent' });
-const browser = await chromium.launch();
+// CHANNEL=chrome이면 설치된 Chrome(GPU 사용)으로 잰다. 기본은 Playwright의 headless Chromium
+const browser = await chromium.launch({ channel: process.env.CHANNEL });
 const med = a => [...a].sort((x, y) => x - y)[a.length >> 1];
 const pct = (a, p) => [...a].sort((x, y) => x - y)[Math.min(a.length - 1, Math.floor(a.length * p))];
 
@@ -70,6 +71,7 @@ async function once() {
 
 const rs = [];
 for (let i = 0; i < +runs; i++) rs.push(await once());
+console.log(`${process.env.CHANNEL ?? 'playwright chromium'} ${browser.version()}`);
 console.log(rs[0].info);
 const row = (k, f) => console.log(k.padEnd(28), f);
 row('로딩 → 첫 화면 (ms)', rs.map(r => r.load.toFixed(0)).join(' / '));

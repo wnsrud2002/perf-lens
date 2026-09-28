@@ -20,38 +20,36 @@ export interface FlameNode {
 
 export function analyze(trace: Trace): { stats: FnStat[]; flame: FlameNode } {
   const root: FlameNode = { name: 'all', total: 0, self: 0, parent: null, children: new Map() };
-  const n = trace.names.length;
-  const calls = new Float64Array(n), total = new Float64Array(n), self = new Float64Array(n);
-  const onStack = new Uint32Array(n); // 이름별로 지금 스택에 몇 개 있는지 (재귀 판정)
+  const stats = new Map<string, FnStat>();
 
   for (const th of trace.threads) {
-    const stack: { i: number; dur: number; childSum: number; node: FlameNode }[] = [];
+    const stack: { depth: number; name: string; dur: number; childSum: number; node: FlameNode }[] = [];
     const pop = () => {
       const f = stack.pop()!;
-      const s = f.dur - f.childSum;
-      f.node.self += s;
-      self[th.name[f.i]] += s;
-      onStack[th.name[f.i]]--;
+      const self = f.dur - f.childSum;
+      f.node.self += self;
+      stats.get(f.name)!.self += self;
     };
 
-    for (let i = 0; i < th.start.length; i++) {
-      while (stack.length && th.depth[stack[stack.length - 1].i] >= th.depth[i]) pop();
-      const dur = th.end[i] - th.start[i];
-      const id = th.name[i], name = trace.names[id];
+    for (const s of th.spans) {
+      while (stack.length && stack[stack.length - 1].depth >= s.depth) pop();
+      const dur = s.end - s.start;
       const parent = stack[stack.length - 1];
       const pNode = parent ? parent.node : root;
-      let node = pNode.children.get(name);
-      if (!node) pNode.children.set(name, (node = { name, total: 0, self: 0, parent: pNode, children: new Map() }));
+      let node = pNode.children.get(s.name);
+      if (!node) pNode.children.set(s.name, (node = { name: s.name, total: 0, self: 0, parent: pNode, children: new Map() }));
       node.total += dur;
       if (parent) parent.childSum += dur;
       else root.total += dur;
 
-      calls[id]++;
-      if (!onStack[id]++) total[id] += dur;
-      stack.push({ i, dur, childSum: 0, node });
+      let st = stats.get(s.name);
+      if (!st) stats.set(s.name, (st = { name: s.name, calls: 0, total: 0, self: 0 }));
+      st.calls++;
+      if (!stack.some(f => f.name === s.name)) st.total += dur;
+
+      stack.push({ depth: s.depth, name: s.name, dur, childSum: 0, node });
     }
     while (stack.length) pop();
   }
-  const stats = trace.names.map((name, id) => ({ name, calls: calls[id], total: total[id], self: self[id] }));
-  return { stats, flame: root };
+  return { stats: [...stats.values()], flame: root };
 }
