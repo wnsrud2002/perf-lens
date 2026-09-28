@@ -11,3 +11,8 @@ samples/leaky_server
 
 # 측정용 외부 소스와 대용량 트레이스 (BENCH.md에 재현 명령이 있다)
 targets/
+
+# heapmap 빌드 결과와 테스트 기록
+heapmap/libheapmap.so
+heapmap/test_mt
+*.bin
