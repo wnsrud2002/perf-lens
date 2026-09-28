@@ -1,5 +1,7 @@
 import type { FlameNode, FnStat } from './analyze.ts';
 import { drawFlame, setFlame } from './flame.ts';
+import type { Heap } from './heap.ts';
+import { hv, setHeap } from './heapview.ts';
 import { lowerBound, type Trace } from './parse.ts';
 import { color, fit, fmt, label, matches, search, showTip } from './util.ts';
 
@@ -25,16 +27,51 @@ let hitIdx = -1;
 
 interface Loaded { trace: Trace; stats: FnStat[]; flame: FlameNode; times: Record<string, number> }
 
+const hInfo = document.getElementById('hinfo')!;
+
+// heap.bin: 파싱과 재생도 Worker에서 한다
+function loadHeap(src: File | string, label: string) {
+  const w = new Worker(new URL('./worker.ts', import.meta.url), { type: 'module' });
+  w.postMessage({ kind: 'heap', src });
+  w.onmessage = (e: MessageEvent<{ heap: Heap; times: Record<string, number> } | { error: string } | null>) => {
+    w.terminate();
+    if (!e.data) return void (hInfo.textContent = `${label}: 없음 — heap.bin을 드롭하세요`);
+    if ('error' in e.data) return void (hInfo.textContent = `${label}: ${e.data.error}`);
+    const h = e.data.heap;
+    hInfo.textContent = `${label} — pid ${h.pid}, 레코드 ${h.records.toLocaleString()}개, 블록 ${h.count.toLocaleString()}개` +
+      (h.unknownFrees ? `, 모르는 free ${h.unknownFrees}` : '');
+    setHeap(h);
+    pair();
+  };
+}
+
+// 두 파일이 같은 실행에서 나왔는지: 트레이스 메인 스레드의 tid는 pid와 같다.
+// 다르면 시각을 맞출 수 없으니 경고하고, 힙 시각은 heap.bin 시작 기준으로 보여 준다
+function pair() {
+  const h = hv.heap;
+  if (!h || !trace) return;
+  const same = trace.threads.some(th => th.tid === h.pid);
+  hv.origin = same ? trace.start : NaN;
+  hInfo.querySelector('.warn')?.remove();
+  if (!same)
+    hInfo.insertAdjacentHTML('beforeend', `<b class="warn"> ⚠ trace.json과 다른 실행입니다 (heap pid ${h.pid}) — 시각을 맞출 수 없습니다</b>`);
+  hv.onTime();
+}
+
+// 힙 슬라이더 시각을 타임라인에 세로선으로 보여 준다 (두 로그는 같은 CLOCK_MONOTONIC)
+hv.onTime = () => (dirty = true);
+
 // 파싱과 분석은 Worker에서 한다. 그동안 메인 스레드는 화면을 계속 그린다
 function load(src: File | string, label: string) {
   const t = performance.now();
   info.textContent = `${label} 불러오는 중…`;
   const w = new Worker(new URL('./worker.ts', import.meta.url), { type: 'module' });
-  w.postMessage(src);
+  w.postMessage({ kind: 'trace', src });
   w.onmessage = (e: MessageEvent<Loaded | null>) => {
     w.terminate();
     if (!e.data) return void (info.textContent = `${label}: 읽지 못함 — trace.json을 이 창에 드롭하세요`);
     ({ trace, stats } = e.data);
+    pair();
     const tr = trace!;
     const stages = Object.entries(e.data.times).map(([k, v]) => `${k} ${v.toFixed(0)}`).join(', ');
     info.textContent = `${label} — 스레드 ${tr.threads.length}개, 함수 호출 ${tr.count.toLocaleString()}개, ` +
@@ -205,6 +242,11 @@ function draw() {
     ctx.fillText(`tid ${th.tid}`, 4, laneTop[n] + LANE_HEAD / 2);
   });
 
+  if (!isNaN(hv.origin) && hv.t <= trace.end) {
+    ctx.fillStyle = '#e5484d';
+    ctx.fillRect((hv.t - t0) * scale, AXIS, 1, canvas.clientHeight - AXIS);
+  }
+
   // 시간 축: 화면에 눈금 10개 안팎이 오도록 1·2·5 단위로 고른다
   const raw = (t1 - t0) / 10, p = 10 ** Math.floor(Math.log10(raw));
   const step = raw / p < 2 ? p : raw / p < 5 ? 2 * p : 5 * p;
@@ -283,9 +325,21 @@ addEventListener('dragleave', () => document.body.classList.remove('drag'));
 addEventListener('drop', e => {
   e.preventDefault();
   document.body.classList.remove('drag');
-  const file = e.dataTransfer?.files[0];
-  if (file) load(file, file.name);
+  // trace.json과 heap.bin을 함께 드롭할 수 있다
+  for (const file of e.dataTransfer?.files ?? []) {
+    if (file.name.endsWith('.bin')) loadHeap(file, file.name);
+    else load(file, file.name);
+  }
 });
 
 // 개발 편의: public/trace.json이 있으면 바로 연다
 load(new URL('trace.json', location.href).href, 'public/trace.json');
+loadHeap(new URL('heap.bin', location.href).href, 'public/heap.bin');
+
+// 아래 패널 탭: 분석(플레임 그래프·Top 10) / 힙 지도
+document.getElementById('tabs')!.addEventListener('click', e => {
+  const tab = (e.target as HTMLElement).dataset.tab;
+  if (!tab) return;
+  for (const b of document.querySelectorAll<HTMLElement>('#tabs button')) b.classList.toggle('on', b.dataset.tab === tab);
+  for (const p of document.querySelectorAll<HTMLElement>('.tab')) p.hidden = p.id !== tab;
+});

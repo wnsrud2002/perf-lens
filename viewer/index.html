@@ -13,7 +13,18 @@
     canvas { width: 100%; display: block; min-height: 0; }
     #c { flex: 1; cursor: grab; }
     #c:active { cursor: grabbing; }
-    #bottom { height: 45%; display: flex; border-top: 1px solid #2b2f38; }
+    #bottom { height: 45%; display: flex; flex-direction: column; border-top: 1px solid #2b2f38; }
+    #tabs { display: flex; gap: 2px; padding: 4px 8px 0; border-bottom: 1px solid #2b2f38; }
+    #tabs button { background: none; color: #7b8394; font: inherit; border: 0; border-bottom: 2px solid transparent; padding: 4px 10px; cursor: pointer; }
+    #tabs button.on { color: #d8dee9; border-bottom-color: #88c0d0; }
+    .tab { flex: 1; min-height: 0; display: flex; }
+    .tab[hidden] { display: none; }
+    #heapview { flex-direction: column; }
+    #heapbar { display: flex; gap: 10px; align-items: center; padding: 6px 10px; flex-wrap: wrap; }
+    #heapbar button { background: #2b2f38; color: inherit; font: inherit; border: 0; border-radius: 3px; width: 28px; height: 22px; cursor: pointer; }
+    #slider { flex: 1; min-width: 160px; }
+    .key { display: inline-block; width: 9px; height: 9px; margin: 0 3px 0 8px; vertical-align: -1px; }
+    #heap { flex: 1; height: 100%; }
     #flame { flex: 1; height: 100%; cursor: pointer; }
     #side { width: 540px; overflow: auto; border-left: 1px solid #2b2f38; }
     table { border-collapse: collapse; width: 100%; }
@@ -25,6 +36,7 @@
     tr[data-name] { cursor: pointer; }
     tr[data-name]:hover { background: #242832; }
     .cap { padding: 6px 8px; color: #7b8394; }
+    .warn { color: #e5a84d; font-weight: normal; }
     #tip { position: fixed; pointer-events: none; background: #000d; padding: 4px 6px; border-radius: 3px; white-space: pre; display: none; z-index: 1; }
     body.drag { outline: 3px dashed #88c0d0; outline-offset: -3px; }
   </style>
@@ -37,10 +49,23 @@
   </header>
   <canvas id="c"></canvas>
   <div id="bottom">
-    <canvas id="flame"></canvas>
-    <div id="side">
-      <div class="cap">느린 함수 Top 10 — 머리글 클릭: 정렬, 행 클릭: 검색</div>
-      <table id="top"></table>
+    <nav id="tabs"><button data-tab="analysis" class="on">분석</button><button data-tab="heapview">힙 지도</button></nav>
+    <div id="analysis" class="tab">
+      <canvas id="flame"></canvas>
+      <div id="side">
+        <div class="cap">느린 함수 Top 10 — 머리글 클릭: 정렬, 행 클릭: 검색</div>
+        <table id="top"></table>
+      </div>
+    </div>
+    <div id="heapview" class="tab" hidden>
+      <div id="heapbar">
+        <button id="play" title="재생">▶</button>
+        <input id="slider" type="range" min="0" max="1000" value="1000" />
+        <span><span class="key" style="background:#3aa99f"></span>살아 있음<span class="key" style="background:#e5484d"></span>누수 후보<span class="key" style="background:#2b2f38"></span>빈 공간</span>
+      </div>
+      <div class="cap" id="hstat"></div>
+      <div class="cap" id="hinfo">heap.bin을 이 창에 드롭하세요 (trace.json과 함께 드롭해도 됩니다)</div>
+      <canvas id="heap"></canvas>
     </div>
   </div>
   <div id="tip"></div>
