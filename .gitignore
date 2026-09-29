@@ -17,3 +17,7 @@ targets/
 heapmap/libheapmap.so
 heapmap/test_mt
 *.bin
+
+# Pages 데모용 샘플은 추적한다 (samples/에서 make trace.json 후 복사)
+!viewer/public/trace.json
+!viewer/public/heap.bin

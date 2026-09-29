@@ -4,7 +4,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "tsc && vite build",
+    "build": "tsc && vite build --base=./",
     "test": "node --test src/*.test.ts",
     "bench": "vite build && node bench.mjs"
   },
