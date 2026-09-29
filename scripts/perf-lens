@@ -1,0 +1,23 @@
+#!/bin/sh
+# 함수 트레이스(trace.json)와 힙 기록(heap.bin)을 한 번 실행으로 함께 남긴다.
+# 사용법: scripts/perf-lens record [-o 출력폴더] 프로그램 [인자...]
+# 대상은 -pg로 빌드해야 함수 트레이스가 남는다.
+set -e
+usage() { echo "사용법: $0 record [-o 출력폴더] 프로그램 [인자...]" >&2; exit 2; }
+root=$(cd "$(dirname "$0")/.." && pwd)
+lib=$root/heapmap/libheapmap.so
+
+[ "$1" = record ] || usage
+shift
+out=.
+if [ "$1" = -o ]; then out=$2; shift 2; fi
+[ $# -gt 0 ] || usage
+
+make -s -C "$root/heapmap" libheapmap.so >&2
+mkdir -p "$out"
+out=$(cd "$out" && pwd)
+
+# --no-libcall: libc 호출 수천만 건을 빼서 트레이스를 함수 단위로 유지한다
+LD_PRELOAD=$lib HEAPMAP_OUT=$out/heap.bin uftrace record -d "$out/uftrace.data" --no-libcall "$@"
+uftrace dump -d "$out/uftrace.data" --chrome > "$out/trace.json"
+echo "완료: $out/trace.json, $out/heap.bin (뷰어에 두 파일을 함께 드롭)" >&2
