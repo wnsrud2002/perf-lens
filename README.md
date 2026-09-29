@@ -64,6 +64,7 @@ scripts/perf-lens record -o out ./myprog 인자...
 
 ## 문서
 
+- [docs/STUDY.md](docs/STUDY.md): 공부 가이드. 배경 지식부터 코드 읽는 순서, 실습, 면접 예상 질문까지
 - [BENCH.md](BENCH.md): 성능 측정 과정, 틀렸던 가설, 측정 함정
 - [CASES.md](CASES.md): jq 실전 분석. 추적 도구 자신의 할당이 사용자 함수에 잘못 붙는 문제
 - [heapmap/FORMAT.md](heapmap/FORMAT.md): heap.bin 바이너리 포맷
